@@ -96,6 +96,8 @@ class MassChecker:
             payment_message = payment_result.get("message", "") if payment_result else ""
             
             # Categorize the site
+            # Rule: If NOT Good site AND NOT To check site → Everything else is Not B3
+            
             # Check if site has site response (payment method successfully added or address error = good site)
             payment_success = payment_result.get("success", False) if payment_result else False
             is_good_site = payment_result.get("is_good_site", False) if payment_result else False
@@ -104,7 +106,16 @@ class MassChecker:
             # Determine if it's B3 (has Braintree)
             is_b3 = has_braintree and braintree_type != "none"
             
-            if has_site_response and payment_message:
+            # Categorization logic: 
+            # 1. First check if it's a Good site (has payment success/address error)
+            # 2. Then check if it's a To check site (has Braintree but NOT a good site)
+            # 3. Everything else → Not B3
+            
+            is_good_site_category = (has_site_response and payment_message)
+            is_to_check_category = (is_b3 and not is_good_site_category)  # Has B3 but NOT a good site
+            
+            # Categorize based on flags
+            if is_good_site_category:
                 # Good site - has site response (payment method added successfully or address error)
                 braintree_status = "Yes" if has_braintree else "No"
                 # Use payment result type if available, otherwise use braintree_info type
@@ -125,7 +136,7 @@ class MassChecker:
                 
                 self._categorize_site(chat_id, message_id, site_line, formatted_result, "good_sites", start_time)
                 
-            elif is_b3:
+            elif is_to_check_category:
                 # To check site - has Braintree but no site response
                 # Set Type and Site response to None as requested
                 braintree_status = "Yes"
@@ -145,12 +156,11 @@ class MassChecker:
                 self._categorize_site(chat_id, message_id, site_line, formatted_result, "to_check_sites", start_time)
                 
             else:
-                # Not B3 - automatically categorized if not Good site and not To check site
-                # (no Braintree, or braintree_type is "none", or no payment success)
-                # Create formatted result for "Not B3" with all None values
+                # Not B3 - automatically categorized if NOT Good site AND NOT To check site
+                # This includes: no Braintree, dead sites, errors, registration failures, etc.
                 formatted_result = {
                     "site": base,
-                    "braintree": "No",
+                    "braintree": "No" if not has_braintree else ("Yes" if has_braintree else "No"),
                     "country": country_code,
                     "captcha": captcha_status,
                     "type": "None",

@@ -77,16 +77,24 @@ pip3 install -r requirements.txt
 
 ## Step 6: Install Playwright Browsers
 
-Playwright needs to download browser binaries:
+Playwright needs to download browser binaries. Use one of these methods:
 
+**Method 1: Using python3 -m (Recommended)**
 ```bash
-playwright install chromium
+python3 -m playwright install chromium
 ```
 
 Or install all browsers:
 ```bash
-playwright install
+python3 -m playwright install
 ```
+
+**Method 2: If playwright command is in PATH**
+```bash
+playwright install chromium
+```
+
+**Note:** If you get "command not found", always use `python3 -m playwright` instead.
 
 ## Step 7: (Optional) Set Up Virtual Environment
 
@@ -96,7 +104,7 @@ It's recommended to use a virtual environment:
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-playwright install chromium
+python3 -m playwright install chromium
 ```
 
 To activate the virtual environment later:
@@ -160,8 +168,10 @@ python3 b3sitechecker.py
 ### Playwright Issues
 If you encounter issues with Playwright, try:
 ```bash
-playwright install --force chromium
+python3 -m playwright install --force chromium
 ```
+
+**Note:** If `playwright` command is not found, always use `python3 -m playwright` instead.
 
 ### Permission Issues
 If you get permission errors, you might need to run with sudo or fix permissions:
