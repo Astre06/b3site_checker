@@ -272,51 +272,11 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
     """Run mass check using mass_chk.py with 5 workers."""
     from mass_chk import MassChecker
     
-    checker = MassChecker(num_workers=5)
+    checker = MassChecker(num_workers=5, bot=bot)
     checker.set_callback(lambda cid, mid, cnt: update_counters_message(cid, mid, cnt))
     
-    # Process all sites
+    # Process all sites (messages are sent immediately during processing)
     results = checker.process_sites(chat_id, message_id, lines)
-    
-    # Send "Good sites" results
-    for result in results["good_sites"]:
-        msg = (
-            f"Site: <code>{result['site']}</code>\n"
-            f"Braintree: {result['braintree']}\n"
-            f"Country: {result['country']}\n"
-            f"Capcha: {result['captcha']}\n"
-            f"Type: {result['type']}\n"
-            f"Site response: {result['response']}\n"
-            f"Time: {result['time']}"
-        )
-        # Send to user
-        bot.send_message(chat_id, msg, parse_mode="HTML")
-        # Forward to channel if configured
-        if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
-            try:
-                bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
-            except Exception as e:
-                logging.exception(f"Failed to forward good site to channel: {e}")
-    
-    # Send "To check site" results with same format
-    for result in results["to_check_sites"]:
-        msg = (
-            f"Site: <code>{result['site']}</code>\n"
-            f"Braintree: {result['braintree']}\n"
-            f"Country: {result['country']}\n"
-            f"Capcha: {result['captcha']}\n"
-            f"Type: {result['type']}\n"
-            f"Site response: {result['response']}\n"
-            f"Time: {result['time']}"
-        )
-        # Send to user
-        bot.send_message(chat_id, msg, parse_mode="HTML")
-        # Forward to channel if configured
-        if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
-            try:
-                bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
-            except Exception as e:
-                logging.exception(f"Failed to forward to_check site to channel: {e}")
     
     # Update final message
     from telebot import types

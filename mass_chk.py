@@ -4,10 +4,11 @@ import time
 import logging
 from typing import Dict, List, Tuple
 from b3sitechecker import check_site_card_form, get_base_url, detect_country_from_domain
+import config
 
 
 class MassChecker:
-    def __init__(self, num_workers: int = 5):
+    def __init__(self, num_workers: int = 5, bot=None):
         self.num_workers = num_workers
         self.site_queue = queue.Queue()
         self.results = {
@@ -22,10 +23,15 @@ class MassChecker:
         }
         self.lock = threading.Lock()
         self.callback = None  # Will be set to bot callback function
+        self.bot = bot  # Bot instance for sending messages immediately
         
     def set_callback(self, callback_func):
         """Set callback function to update message with counters."""
         self.callback = callback_func
+    
+    def set_bot(self, bot):
+        """Set bot instance for sending messages."""
+        self.bot = bot
     
     def worker(self, worker_id: int):
         """Worker thread that processes sites from queue."""
@@ -51,7 +57,19 @@ class MassChecker:
             # Extract site URL
             site_token = site_line.strip().split()[0] if site_line.strip() else ""
             if not site_token:
-                self._categorize_site(chat_id, message_id, site_line, None, "not_b3", start_time)
+                elapsed_time = time.time() - start_time
+                time_str = f"{elapsed_time:.2f}s"
+                country_code = detect_country_from_domain(site_line.strip() if site_line.strip() else "")
+                formatted_result = {
+                    "site": site_line.strip() if site_line.strip() else "Unknown",
+                    "braintree": "No",
+                    "country": country_code,
+                    "captcha": "No",
+                    "type": "None",
+                    "response": "None",
+                    "time": time_str
+                }
+                self._categorize_site(chat_id, message_id, site_line, formatted_result, "not_b3", start_time)
                 return
             
             base = get_base_url(site_token) or site_token
@@ -73,18 +91,21 @@ class MassChecker:
             payment_result = result.get("payment_result", {})
             payment_message = payment_result.get("message", "") if payment_result else ""
             
-            # Determine if registration succeeded
-            registration_succeeded = result.get("register_found") and payment_result and payment_message
-            
             # Categorize the site
             # Check if site has site response (payment method successfully added or address error = good site)
             payment_success = payment_result.get("success", False) if payment_result else False
             is_good_site = payment_result.get("is_good_site", False) if payment_result else False
             has_site_response = payment_success or is_good_site  # Good site = success or address error
             
+            # Determine if it's B3 (has Braintree)
+            is_b3 = has_braintree and braintree_type != "none"
+            
             if has_site_response and payment_message:
                 # Good site - has site response (payment method added successfully or address error)
                 braintree_status = "Yes" if has_braintree else "No"
+                # Use payment result type if available, otherwise use braintree_info type
+                if payment_result.get("braintree_type"):
+                    braintree_type = payment_result.get("braintree_type", "none")
                 type_str = braintree_type if braintree_type != "none" else "None"
                 site_response = payment_message
                 
@@ -100,24 +121,16 @@ class MassChecker:
                 
                 self._categorize_site(chat_id, message_id, site_line, formatted_result, "good_sites", start_time)
                 
-            elif has_braintree and braintree_type != "none":
+            elif is_b3:
                 # To check site - has Braintree but no site response
-                type_str = braintree_type if braintree_type != "none" else "None"
-                
-                # Determine site response
-                if result.get("register_found"):
-                    if registration_succeeded and payment_message:
-                        site_response = payment_message
-                    elif registration_succeeded:
-                        site_response = "Account created"
-                    else:
-                        site_response = "None"
-                else:
-                    site_response = "None"
+                # Set Type and Site response to None as requested
+                braintree_status = "Yes"
+                type_str = "None"  # Always None for "To check site"
+                site_response = "None"  # Always None for "To check site"
                 
                 formatted_result = {
                     "site": base,
-                    "braintree": "Yes",
+                    "braintree": braintree_status,
                     "country": country_code,
                     "captcha": captcha_status,
                     "type": type_str,
@@ -128,15 +141,43 @@ class MassChecker:
                 self._categorize_site(chat_id, message_id, site_line, formatted_result, "to_check_sites", start_time)
                 
             else:
-                # Not B3 - dead or no Braintree
-                self._categorize_site(chat_id, message_id, site_line, None, "not_b3", start_time)
+                # Not B3 - no Braintree or braintree_type is "none"
+                # Create formatted result for "Not B3" with all None values
+                formatted_result = {
+                    "site": base,
+                    "braintree": "No",
+                    "country": country_code,
+                    "captcha": captcha_status,
+                    "type": "None",
+                    "response": "None",
+                    "time": time_str
+                }
+                self._categorize_site(chat_id, message_id, site_line, formatted_result, "not_b3", start_time)
                 
         except Exception as e:
             logging.exception(f"Error checking site: {site_line}")
-            self._categorize_site(chat_id, message_id, site_line, None, "not_b3", start_time)
+            elapsed_time = time.time() - start_time
+            time_str = f"{elapsed_time:.2f}s"
+            # Try to extract base URL even on error
+            try:
+                site_token = site_line.strip().split()[0] if site_line.strip() else ""
+                base = get_base_url(site_token) or site_token if site_token else site_line.strip()
+            except:
+                base = site_line.strip() if site_line.strip() else "Unknown"
+            country_code = detect_country_from_domain(base)
+            formatted_result = {
+                "site": base,
+                "braintree": "No",
+                "country": country_code,
+                "captcha": "No",
+                "type": "None",
+                "response": "None",
+                "time": time_str
+            }
+            self._categorize_site(chat_id, message_id, site_line, formatted_result, "not_b3", start_time)
     
     def _categorize_site(self, chat_id: int, message_id: int, site_line: str, result: Dict, category: str, start_time: float):
-        """Categorize site and update counters/callbacks."""
+        """Categorize site and update counters/callbacks, send message immediately."""
         with self.lock:
             self.counters[category] += 1
             
@@ -145,6 +186,34 @@ class MassChecker:
                     self.results["good_sites"].append(result)
                 elif category == "to_check_sites":
                     self.results["to_check_sites"].append(result)
+                elif category == "not_b3":
+                    self.results["not_b3_sites"].append(result)
+            
+            # Send message immediately if result exists and bot is available
+            if result and self.bot:
+                try:
+                    # Format message exactly like manual check
+                    msg = (
+                        f"Site: <code>{result['site']}</code>\n"
+                        f"Braintree: {result['braintree']}\n"
+                        f"Country: {result['country']}\n"
+                        f"Capcha: {result['captcha']}\n"
+                        f"Type: {result['type']}\n"
+                        f"Site response: {result['response']}\n"
+                        f"Time: {result['time']}"
+                    )
+                    
+                    # Send to user
+                    self.bot.send_message(chat_id, msg, parse_mode="HTML")
+                    
+                    # Forward to channel if configured
+                    if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+                        try:
+                            self.bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
+                        except Exception as e:
+                            logging.exception(f"Failed to forward to channel: {e}")
+                except Exception as e:
+                    logging.exception(f"Error sending message: {e}")
             
             # Update callback with new counters
             if self.callback:
