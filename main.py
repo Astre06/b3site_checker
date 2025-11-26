@@ -225,7 +225,47 @@ def handle_sites_file(message):
     if not lines:
         bot.reply_to(message, "The file is empty or contains only blank lines.")
         return
-
+    
+    # Remove duplicates while preserving order
+    # Use get_base_url for proper normalization
+    original_count = len(lines)
+    seen = set()
+    unique_lines = []
+    
+    for line in lines:
+        # Extract site token (first word, handles cases like "site.com ==> [info]")
+        site_token = line.split()[0] if line.strip() else ""
+        if site_token:
+            # Normalize using get_base_url function for consistent comparison
+            try:
+                base_url = get_base_url(site_token) or site_token
+                # Normalize for comparison: lowercase, remove protocol, trailing slash
+                normalized = base_url.lower().strip()
+                if normalized.startswith('http://'):
+                    normalized = normalized[7:]
+                elif normalized.startswith('https://'):
+                    normalized = normalized[8:]
+                normalized = normalized.rstrip('/')
+                
+                if normalized not in seen:
+                    seen.add(normalized)
+                    unique_lines.append(line)
+            except Exception:
+                # If get_base_url fails, use simple normalization
+                normalized = site_token.lower().strip()
+                if normalized.startswith('http://'):
+                    normalized = normalized[7:]
+                elif normalized.startswith('https://'):
+                    normalized = normalized[8:]
+                normalized = normalized.rstrip('/')
+                
+                if normalized not in seen:
+                    seen.add(normalized)
+                    unique_lines.append(line)
+    
+    lines = unique_lines
+    duplicate_count = original_count - len(lines)
+    
     # Create inline keyboard with counters
     from telebot import types
     keyboard = types.InlineKeyboardMarkup()
@@ -238,9 +278,14 @@ def handle_sites_file(message):
     )
     
     # Send initial message with inline buttons
+    # Include duplicate info if duplicates were removed
+    status_text = f"Start checking (0/{len(lines)})..."
+    if duplicate_count > 0:
+        status_text = f"📋 Removed {duplicate_count} duplicate(s)\n{status_text}"
+    
     status_msg = bot.reply_to(
         message,
-        f"Start checking (0/{len(lines)})...",
+        status_text,
         reply_markup=keyboard
     )
     message_id = status_msg.message_id
