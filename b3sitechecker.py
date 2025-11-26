@@ -1280,7 +1280,7 @@ def register_new_account_selenium(register_url: str, max_retries: int = 3, sessi
         
         # Launch browser (visible, not headless)
         browser = playwright.chromium.launch(
-            headless=True,  # Visible browser
+            headless=False,  # Visible browser
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-dev-shm-usage',

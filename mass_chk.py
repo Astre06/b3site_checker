@@ -24,6 +24,8 @@ class MassChecker:
         self.lock = threading.Lock()
         self.callback = None  # Will be set to bot callback function
         self.bot = bot  # Bot instance for sending messages immediately
+        self.total_sites = 0
+        self.checked_count = 0
         
     def set_callback(self, callback_func):
         """Set callback function to update message with counters."""
@@ -141,7 +143,8 @@ class MassChecker:
                 self._categorize_site(chat_id, message_id, site_line, formatted_result, "to_check_sites", start_time)
                 
             else:
-                # Not B3 - no Braintree or braintree_type is "none"
+                # Not B3 - automatically categorized if not Good site and not To check site
+                # (no Braintree, or braintree_type is "none", or no payment success)
                 # Create formatted result for "Not B3" with all None values
                 formatted_result = {
                     "site": base,
@@ -180,6 +183,7 @@ class MassChecker:
         """Categorize site and update counters/callbacks, send message immediately."""
         with self.lock:
             self.counters[category] += 1
+            self.checked_count += 1
             
             if result:
                 if category == "good_sites":
@@ -190,7 +194,8 @@ class MassChecker:
                     self.results["not_b3_sites"].append(result)
             
             # Send message immediately if result exists and bot is available
-            if result and self.bot:
+            # Only send for good_sites and to_check_sites, NOT for not_b3
+            if result and self.bot and category != "not_b3":
                 try:
                     # Format message exactly like manual check
                     msg = (
@@ -215,10 +220,10 @@ class MassChecker:
                 except Exception as e:
                     logging.exception(f"Error sending message: {e}")
             
-            # Update callback with new counters
+            # Update callback with new counters and progress
             if self.callback:
                 try:
-                    self.callback(chat_id, message_id, self.counters)
+                    self.callback(chat_id, message_id, self.counters, self.checked_count, self.total_sites)
                 except Exception as e:
                     logging.exception(f"Error updating callback: {e}")
     
@@ -235,6 +240,8 @@ class MassChecker:
             "to_check_sites": 0,
             "not_b3_sites": 0
         }
+        self.total_sites = len(sites)
+        self.checked_count = 0
         
         # Start worker threads
         workers = []

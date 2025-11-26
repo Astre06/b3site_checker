@@ -1,6 +1,8 @@
 import logging
 import threading
 import time
+import os
+import tempfile
 
 import telebot
 
@@ -238,10 +240,16 @@ def handle_sites_file(message):
     # Send initial message with inline buttons
     status_msg = bot.reply_to(
         message,
-        f"Start checking...\nReceived {len(lines)} sites.",
+        f"Start checking (0/{len(lines)})...",
         reply_markup=keyboard
     )
     message_id = status_msg.message_id
+    
+    # Auto pin the progress board
+    try:
+        bot.pin_chat_message(message.chat.id, message_id, disable_notification=True)
+    except Exception as e:
+        logging.exception(f"Failed to pin message: {e}")
 
     # Run mass check in separate thread
     thread = threading.Thread(target=run_mass_check, args=(message.chat.id, message_id, lines))
@@ -249,8 +257,8 @@ def handle_sites_file(message):
     thread.start()
 
 
-def update_counters_message(chat_id: int, message_id: int, counters: dict):
-    """Update the message with current counters."""
+def update_counters_message(chat_id: int, message_id: int, counters: dict, checked: int = 0, total: int = 0):
+    """Update the message with current counters and progress."""
     from telebot import types
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
@@ -261,11 +269,17 @@ def update_counters_message(chat_id: int, message_id: int, counters: dict):
         types.InlineKeyboardButton(f"Not B3 ({counters['not_b3_sites']})", callback_data="counter_notb3")
     )
     
+    # Update message text with progress
+    progress_text = f"Start checking ({checked}/{total})..."
+    
     try:
-        bot.edit_message_reply_markup(chat_id, message_id, reply_markup=keyboard)
+        bot.edit_message_text(progress_text, chat_id, message_id, reply_markup=keyboard)
     except Exception as e:
-        # Ignore edit errors (message not modified, etc.)
-        pass
+        # If text edit fails, try just updating the markup
+        try:
+            bot.edit_message_reply_markup(chat_id, message_id, reply_markup=keyboard)
+        except:
+            pass
 
 
 def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
@@ -273,10 +287,16 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
     from mass_chk import MassChecker
     
     checker = MassChecker(num_workers=5, bot=bot)
-    checker.set_callback(lambda cid, mid, cnt: update_counters_message(cid, mid, cnt))
+    checker.set_callback(lambda cid, mid, cnt, checked, total: update_counters_message(cid, mid, cnt, checked, total))
     
     # Process all sites (messages are sent immediately during processing)
     results = checker.process_sites(chat_id, message_id, lines)
+    
+    # Auto unpin the progress board
+    try:
+        bot.unpin_chat_message(chat_id, message_id)
+    except Exception as e:
+        logging.exception(f"Failed to unpin message: {e}")
     
     # Update final message
     from telebot import types
@@ -301,6 +321,55 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
         bot.edit_message_text(final_msg, chat_id, message_id, reply_markup=final_keyboard)
     except Exception:
         bot.send_message(chat_id, final_msg, reply_markup=final_keyboard)
+    
+    # Create and send files for good sites and to check sites
+    # Good sites file
+    if results["good_sites"]:
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
+                for result in results["good_sites"]:
+                    f.write(f"{result['site']}\n")
+                temp_file_path = f.name
+            
+            # Send to user
+            with open(temp_file_path, 'rb') as f:
+                bot.send_document(chat_id, f, caption=f"✅ Good Sites ({len(results['good_sites'])})")
+            
+            # Forward to channel
+            if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+                try:
+                    with open(temp_file_path, 'rb') as f:
+                        bot.send_document(config.CHANNEL_ID, f, caption=f"✅ Good Sites ({len(results['good_sites'])})")
+                except Exception as e:
+                    logging.exception(f"Failed to forward good sites file to channel: {e}")
+            
+            os.unlink(temp_file_path)
+        except Exception as e:
+            logging.exception(f"Error creating/sending good sites file: {e}")
+    
+    # To check sites file
+    if results["to_check_sites"]:
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
+                for result in results["to_check_sites"]:
+                    f.write(f"{result['site']}\n")
+                temp_file_path = f.name
+            
+            # Send to user
+            with open(temp_file_path, 'rb') as f:
+                bot.send_document(chat_id, f, caption=f"🔍 To Check Sites ({len(results['to_check_sites'])})")
+            
+            # Forward to channel
+            if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+                try:
+                    with open(temp_file_path, 'rb') as f:
+                        bot.send_document(config.CHANNEL_ID, f, caption=f"🔍 To Check Sites ({len(results['to_check_sites'])})")
+                except Exception as e:
+                    logging.exception(f"Failed to forward to_check sites file to channel: {e}")
+            
+            os.unlink(temp_file_path)
+        except Exception as e:
+            logging.exception(f"Error creating/sending to_check sites file: {e}")
 
 
 if __name__ == "__main__":
