@@ -19,13 +19,15 @@ class MassChecker:
         self.counters = {
             "good_sites": 0,
             "to_check_sites": 0,
-            "not_b3_sites": 0
+            "not_b3": 0  # Changed from "not_b3_sites" to match category parameter
         }
         self.lock = threading.Lock()
         self.callback = None  # Will be set to bot callback function
         self.bot = bot  # Bot instance for sending messages immediately
         self.total_sites = 0
         self.checked_count = 0
+        self.last_callback_time = 0  # For throttling callback updates
+        self.callback_throttle = 0.5  # Update at most every 0.5 seconds
         
     def set_callback(self, callback_func):
         """Set callback function to update message with counters."""
@@ -181,6 +183,7 @@ class MassChecker:
     
     def _categorize_site(self, chat_id: int, message_id: int, site_line: str, result: Dict, category: str, start_time: float):
         """Categorize site and update counters/callbacks, send message immediately."""
+        # Update counters and store results (inside lock for thread safety)
         with self.lock:
             self.counters[category] += 1
             self.checked_count += 1
@@ -193,37 +196,47 @@ class MassChecker:
                 elif category == "not_b3":
                     self.results["not_b3_sites"].append(result)
             
-            # Send message immediately if result exists and bot is available
-            # Only send for good_sites and to_check_sites, NOT for not_b3
-            if result and self.bot and category != "not_b3":
+            # Get current counters for callback (copy to avoid lock contention)
+            current_counters = self.counters.copy()
+            current_checked = self.checked_count
+            current_total = self.total_sites
+        
+        # Send message immediately if result exists and bot is available (outside lock)
+        # Only send for good_sites and to_check_sites, NOT for not_b3
+        if result and self.bot and category != "not_b3":
+            try:
+                # Format message exactly like manual check
+                msg = (
+                    f"Site: <code>{result['site']}</code>\n"
+                    f"Braintree: {result['braintree']}\n"
+                    f"Country: {result['country']}\n"
+                    f"Capcha: {result['captcha']}\n"
+                    f"Type: {result['type']}\n"
+                    f"Site response: {result['response']}\n"
+                    f"Time: {result['time']}"
+                )
+                
+                # Send to user
+                self.bot.send_message(chat_id, msg, parse_mode="HTML")
+                
+                # Forward to channel if configured
+                if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+                    try:
+                        self.bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
+                    except Exception as e:
+                        logging.exception(f"Failed to forward to channel: {e}")
+            except Exception as e:
+                logging.exception(f"Error sending message: {e}")
+        
+        # Update callback with new counters and progress (outside lock, with throttling)
+        if self.callback:
+            current_time = time.time()
+            # Throttle: only update if enough time has passed since last update
+            if current_time - self.last_callback_time >= self.callback_throttle:
                 try:
-                    # Format message exactly like manual check
-                    msg = (
-                        f"Site: <code>{result['site']}</code>\n"
-                        f"Braintree: {result['braintree']}\n"
-                        f"Country: {result['country']}\n"
-                        f"Capcha: {result['captcha']}\n"
-                        f"Type: {result['type']}\n"
-                        f"Site response: {result['response']}\n"
-                        f"Time: {result['time']}"
-                    )
-                    
-                    # Send to user
-                    self.bot.send_message(chat_id, msg, parse_mode="HTML")
-                    
-                    # Forward to channel if configured
-                    if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
-                        try:
-                            self.bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
-                        except Exception as e:
-                            logging.exception(f"Failed to forward to channel: {e}")
-                except Exception as e:
-                    logging.exception(f"Error sending message: {e}")
-            
-            # Update callback with new counters and progress
-            if self.callback:
-                try:
-                    self.callback(chat_id, message_id, self.counters, self.checked_count, self.total_sites)
+                    self.callback(chat_id, message_id, current_counters, current_checked, current_total)
+                    with self.lock:
+                        self.last_callback_time = current_time
                 except Exception as e:
                     logging.exception(f"Error updating callback: {e}")
     
@@ -238,7 +251,7 @@ class MassChecker:
         self.counters = {
             "good_sites": 0,
             "to_check_sites": 0,
-            "not_b3_sites": 0
+            "not_b3": 0  # Changed from "not_b3_sites" to match category parameter
         }
         self.total_sites = len(sites)
         self.checked_count = 0

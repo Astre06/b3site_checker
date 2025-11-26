@@ -266,7 +266,7 @@ def update_counters_message(chat_id: int, message_id: int, counters: dict, check
         types.InlineKeyboardButton(f"To check site ({counters['to_check_sites']})", callback_data="counter_check")
     )
     keyboard.add(
-        types.InlineKeyboardButton(f"Not B3 ({counters['not_b3_sites']})", callback_data="counter_notb3")
+        types.InlineKeyboardButton(f"Not B3 ({counters['not_b3']})", callback_data="counter_notb3")
     )
     
     # Update message text with progress
@@ -309,12 +309,12 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
         types.InlineKeyboardButton(f"Not B3 ({checker.counters['not_b3_sites']})", callback_data="counter_notb3")
     )
     
-    total_checked = checker.counters['good_sites'] + checker.counters['to_check_sites'] + checker.counters['not_b3_sites']
+    total_checked = checker.counters['good_sites'] + checker.counters['to_check_sites'] + checker.counters['not_b3']
     final_msg = (
         f"✅ Finished checking {total_checked} sites.\n"
         f"Good sites: {checker.counters['good_sites']}\n"
         f"To check: {checker.counters['to_check_sites']}\n"
-        f"Not B3: {checker.counters['not_b3_sites']}"
+        f"Not B3: {checker.counters['not_b3']}"
     )
     
     try:
