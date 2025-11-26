@@ -289,7 +289,14 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
             f"Site response: {result['response']}\n"
             f"Time: {result['time']}"
         )
+        # Send to user
         bot.send_message(chat_id, msg, parse_mode="HTML")
+        # Forward to channel if configured
+        if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+            try:
+                bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
+            except Exception as e:
+                logging.exception(f"Failed to forward good site to channel: {e}")
     
     # Send "To check site" results with same format
     for result in results["to_check_sites"]:
@@ -302,7 +309,14 @@ def run_mass_check(chat_id: int, message_id: int, lines: list[str]):
             f"Site response: {result['response']}\n"
             f"Time: {result['time']}"
         )
+        # Send to user
         bot.send_message(chat_id, msg, parse_mode="HTML")
+        # Forward to channel if configured
+        if hasattr(config, 'CHANNEL_ID') and config.CHANNEL_ID:
+            try:
+                bot.send_message(config.CHANNEL_ID, msg, parse_mode="HTML")
+            except Exception as e:
+                logging.exception(f"Failed to forward to_check site to channel: {e}")
     
     # Update final message
     from telebot import types
